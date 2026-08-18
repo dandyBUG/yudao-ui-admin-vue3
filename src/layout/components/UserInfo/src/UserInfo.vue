@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { ElMessageBox } from 'element-plus'
 
+import { CACHE_KEY, useCache } from '@/hooks/web/useCache'
 import avatarImg from '@/assets/imgs/avatar.gif'
 import { useDesign } from '@/hooks/web/useDesign'
 import { useTagsViewStore } from '@/store/modules/tagsView'
@@ -52,6 +53,22 @@ const toProfile = async () => {
 const toDocument = () => {
   window.open('https://doc.iocoder.cn/')
 }
+/** 刷新菜单缓存 */
+const refreshMenuCache = async () => {
+  try {
+    await ElMessageBox.confirm('即将更新缓存刷新浏览器！', '刷新菜单缓存', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    const { wsCache } = useCache()
+    wsCache.delete(CACHE_KEY.USER)
+    wsCache.delete(CACHE_KEY.ROLE_ROUTERS)
+    location.reload()
+  } catch {
+    // 用户取消
+  }
+}
 </script>
 
 <template>
@@ -70,7 +87,7 @@ const toDocument = () => {
         </ElDropdownItem>
         <ElDropdownItem>
           <Icon icon="ep:menu" />
-          <div @click="toDocument">{{ t('common.document') }}</div>
+          <div @click="refreshMenuCache">{{ t('common.document') }}</div>
         </ElDropdownItem>
         <ElDropdownItem divided>
           <Icon icon="ep:lock" />

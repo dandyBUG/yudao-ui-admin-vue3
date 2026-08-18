@@ -63,6 +63,9 @@ export const getRawRoute = (route: RouteLocationNormalized): RouteLocationNormal
 export const generateRoute = (routes: AppCustomRouteRecordRaw[]): AppRouteRecordRaw[] => {
   const res: AppRouteRecordRaw[] = []
   const modulesRoutesKeys = Object.keys(modules)
+
+  const nameCountMap = new Map()// ✅ 添加名称去重映射
+
   for (const route of routes) {
     const meta = {
       title: route.name,
@@ -74,29 +77,52 @@ export const generateRoute = (routes: AppCustomRouteRecordRaw[]): AppRouteRecord
         route.children.length === 1 &&
         (route.alwaysShow !== undefined ? route.alwaysShow : true)
     }
+    // 生成基础名称
+    let baseName = route.componentName && route.componentName.length > 0
+      ? route.componentName
+      : toCamelCase(route.path, true)
+
+    // ✅ 方案2：根据模块添加前缀
+    if (route.component?.includes('bpm/')) {
+      baseName = `Bpm${baseName}`
+    } else if (route.component?.includes('mall/')) {
+      baseName = `Mall${baseName}`
+    } else if (route.component?.includes('iot/')) {
+      baseName = `Iot${baseName}`
+    } else if (route.component?.includes('crm/')) {
+      baseName = `Crm${baseName}`
+    } else if (route.component?.includes('system/')) {
+      baseName = `System${baseName}`
+    } else if (route.component?.includes('infra/')) {
+      baseName = `Infra${baseName}`
+    }
+    // ✅ 处理重复名称
+    const count = nameCountMap.get(baseName) || 0
+    if (count > 0) {
+      console.warn(`⚠️ 发现重复路由名称: ${baseName}，自动重命名`)
+      baseName = `${baseName}${count}`
+    }
+    nameCountMap.set(baseName, count + 1)
+
     // 路由地址转首字母大写驼峰，作为路由名称，适配keepAlive
     let data: AppRouteRecordRaw = {
       path: route.path,
-      name:
-        route.componentName && route.componentName.length > 0
-          ? route.componentName
-          : toCamelCase(route.path, true),
+      name:baseName, // 使用处理后的名称
       redirect: route.redirect,
       meta: meta
     }
+    // ✅ 检查生成的名称
+    console.log(`🔍 生成路由: path=${route.path}, name=${data.name}`)
     //处理顶级非目录路由
     if (!route.children && route.parentId == 0 && route.component) {
       data.component = Layout
       data.meta = {}
-      data.name = toCamelCase(route.path, true) + 'Parent'
+      data.name = baseName + 'Parent' // ✅ 使用处理后的 baseName 而不是重新生成
       data.redirect = ''
       meta.alwaysShow = true
       const childrenData: AppRouteRecordRaw = {
         path: '',
-        name:
-          route.componentName && route.componentName.length > 0
-            ? route.componentName
-            : toCamelCase(route.path, true),
+        name: baseName,// ✅ 使用处理后的 baseName
         redirect: route.redirect,
         meta: meta
       }
@@ -134,6 +160,7 @@ export const generateRoute = (routes: AppCustomRouteRecordRaw[]): AppRouteRecord
     }
     res.push(data as AppRouteRecordRaw)
   }
+  console.log('✅ 生成的路由名称列表:', Array.from(nameCountMap.keys()))
   return res
 }
 export const getRedirect = (parentPath: string, children: AppCustomRouteRecordRaw[]) => {
@@ -161,7 +188,41 @@ export const pathResolve = (parentPath: string, path: string) => {
 
 // 路由降级
 export const flatMultiLevelRoutes = (routes: AppRouteRecordRaw[]) => {
+  console.group('🔄 路由扁平化 - 全局名称检查开始')
+
+  // ✅ 添加全局名称去重逻辑
+  const globalNameMap = new Map()
+  let renameCount = 0
+
+  function ensureUniqueNames(route: AppRouteRecordRaw) {
+    if (route.name) {
+      const originalName = route.name.toString()
+      if (globalNameMap.has(originalName)) {
+        let newName = originalName
+        let counter = 1
+        while (globalNameMap.has(newName)) {
+          newName = `${originalName}${counter}`
+          counter++
+        }
+        console.warn(`🔄 全局重命名: ${originalName} → ${newName}`)
+        route.name = newName
+        renameCount++
+      }
+      globalNameMap.set(route.name, true)
+    }
+
+    if (route.children) {
+      route.children.forEach(child => ensureUniqueNames(child))
+    }
+  }
+
+  // 深拷贝后再处理
   const modules: AppRouteRecordRaw[] = cloneDeep(routes)
+  modules.forEach(route => ensureUniqueNames(route))
+
+  console.log(`✅ 完成重命名 ${renameCount} 个路由`)
+  console.log('最终路由名称列表:', Array.from(globalNameMap.keys()))
+
   for (let index = 0; index < modules.length; index++) {
     const route = modules[index]
     if (!isMultipleRoute(route)) {
@@ -169,6 +230,8 @@ export const flatMultiLevelRoutes = (routes: AppRouteRecordRaw[]) => {
     }
     promoteRouteLevel(route)
   }
+
+  console.groupEnd()
   return modules
 }
 
@@ -211,6 +274,9 @@ const addToChildren = (
   children: AppRouteRecordRaw[],
   routeModule: AppRouteRecordRaw
 ) => {
+  // ✅ 在函数内部维护名称集合
+  const localNameSet = new Set()
+
   for (let index = 0; index < children.length; index++) {
     const child = children[index]
     const route = routes.find((item) => item.name === child.name)
@@ -218,9 +284,21 @@ const addToChildren = (
       continue
     }
     routeModule.children = routeModule.children || []
-    if (!routeModule.children.find((item) => item.name === route.name)) {
-      routeModule.children?.push(route as unknown as AppRouteRecordRaw)
+
+    // ✅ 加强检查：本地 + 全局
+    const existingRoute = routeModule.children.find((item) => item.name === route.name)
+    if (existingRoute || localNameSet.has(route.name)) {
+      console.warn(`🚨 跳过重复路由: ${route.name}，父路由: ${routeModule.name}`)
+      // 即使跳过当前路由，也要继续处理它的子路由
+      if (child.children?.length) {
+        addToChildren(routes, child.children, routeModule)
+      }
+      continue
     }
+
+    localNameSet.add(route.name)
+    routeModule.children?.push(route as unknown as AppRouteRecordRaw)
+
     if (child.children?.length) {
       addToChildren(routes, child.children, routeModule)
     }

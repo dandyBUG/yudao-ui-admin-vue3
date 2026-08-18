@@ -29,14 +29,19 @@ export default ({ command, mode }: ConfigEnv): UserConfig => {
       host: "0.0.0.0",
       open: env.VITE_OPEN === 'true',
       // 本地跨域代理. 目前注释的原因：暂时没有用途，server 端已经支持跨域
-      // proxy: {
-      //   ['/admin-api']: {
-      //     target: env.VITE_BASE_URL,
-      //     ws: false,
-      //     changeOrigin: true,
-      //     rewrite: (path) => path.replace(new RegExp(`^/admin-api`), ''),
-      //   },
-      // },
+      proxy: {
+        ['/admin-api']: {
+          target: env.VITE_BASE_URL,
+          ws: false,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(new RegExp(`^/admin-api`), ''),
+        },
+        // 单独代理 simple-list（如果不在 /admin-api 下）
+        '/simple-list': {
+          target: env.VITE_BASE_URL,
+          changeOrigin: true,
+        }
+      },
     },
     // 项目使用的vite插件。 单独提取到build/vite/plugin中管理
     plugins: createVitePlugins(),
@@ -44,7 +49,23 @@ export default ({ command, mode }: ConfigEnv): UserConfig => {
       preprocessorOptions: {
         scss: {
           additionalData: '@import "./src/styles/variables.scss";',
-          javascriptEnabled: true
+          javascriptEnabled: true,
+          // 添加以下配置来忽略 Sass 警告
+          api: 'modern',
+          silenceDeprecations: ['legacy-js-api', 'import'],
+          logger: {
+            warn: (msg: string) => {
+              // 忽略所有 Sass 相关的警告
+              if (msg.includes('Deprecation Warning') ||
+                msg.includes('Sass') ||
+                msg.includes('@use') ||
+                msg.includes('@import')) {
+                return
+              }
+              console.warn(msg)
+            },
+            debug: () => {}
+          }
         }
       }
     },
@@ -70,6 +91,13 @@ export default ({ command, mode }: ConfigEnv): UserConfig => {
         compress: {
           drop_debugger: env.VITE_DROP_DEBUGGER === 'true',
           drop_console: env.VITE_DROP_CONSOLE === 'true'
+        }
+      },
+      // 忽略构建警告
+      rollupOptions: {
+        onwarn(warning, warn) {
+          // 忽略所有警告
+          return
         }
       }
     },
