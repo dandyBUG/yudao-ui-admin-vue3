@@ -9,3 +9,8 @@ pnpm-debug
 auto-*.d.ts
 .idea
 .history
+
+# 本地开发及浏览器调试生成文件
+/.playwright-cli/
+/.npmrc
+/pnpm-workspace.yaml
